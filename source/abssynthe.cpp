@@ -30,6 +30,7 @@
 #include "abssynthe.h"
 #include "logging.h"
 #include "aig.h"
+#include "algos.h"
 
 const char* ABSSYNTHE_VERSION = "Swiss-Abssynthe 1.0";
 const int EXIT_STATUS_REALIZABLE = 10;
@@ -163,6 +164,9 @@ int main (int argc, char** argv) {
     } else {
         // try to open the spec now
         AIG aig(settings.spec_file);
+	dbgMsg("Trying to compute reachable states...");
+	//result = reachable(aig);
+	dbgMsg("Done...");
         if (settings.comp_algo == 1) {
                 result = compSolve1(&aig);
         } else if (settings.comp_algo == 2){

@@ -1,8 +1,10 @@
+#CXX=clang++
 CXX=g++
-CXXFLAGS=-Wall -std=c++11 -pthread -O3 -D NDEBUG
-HEADERS=abssynthe.h logging.h aig.h aiger.h
+CXXFLAGS=-Wall -std=c++11 -pthread -O3
+HEADERS=abssynthe.h logging.h aig.h aiger.h algos.h
 SOURCES=abssynthe.cpp logging.cpp aig.cpp aiger.c algos.cpp
-CUDD_PATH=cudd-2.5.1
+#CUDD_PATH=cudd-2.5.1
+CUDD_PATH=../../ocaml-cudd/cudd-2.5.0
 CUDD_HDRS=$(CUDD_PATH)/include
 CUDD_LIBS=$(CUDD_PATH)/obj/libobj.a \
 	  $(CUDD_PATH)/cudd/libcudd.a \

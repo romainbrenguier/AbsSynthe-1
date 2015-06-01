@@ -41,7 +41,7 @@
 #include "abssynthe.h"
 #include "logging.h"
 #include "aig.h"
-
+#include "algos.h"
 
 using namespace std;
 
@@ -238,16 +238,6 @@ static BDD substituteLatchesNext(BDDAIG* spec, BDD dst, BDD* care_region=NULL) {
     } else {
         vector<BDD> next_funs = spec->nextFunComposeVec(care_region);
         result = dst.VectorCompose(next_funs);
-#if false
-        BDD trans_rel_bdd = spec->transRelBdd();
-        BDD primed_dst = spec->primeLatchesInBdd(dst);
-        BDD primed_latch_cube = spec->primedLatchCube();
-        BDD result2 = trans_rel_bdd.AndAbstract(primed_dst,
-                                                primed_latch_cube);
-        if (result != result2) {
-            errMsg("Vector compose resulted in the wrong BDD");
-        }
-#endif
     }
     return result;
 }
@@ -261,6 +251,20 @@ static BDD upre(BDDAIG* spec, BDD dst, BDD &trans_bdd) {
     BDD uinput_cube = spec->uinputCube();
     BDD temp_bdd = trans_bdd.UnivAbstract(cinput_cube);
     return temp_bdd.ExistAbstract(uinput_cube);
+}
+
+
+static BDD post(BDDAIG & spec, BDD & src) {
+    std::vector<BDD> nextFun = spec.nextFunComposeVec();
+    std::vector<unsigned> latches = spec.getLatchLits();
+    std::vector<unsigned>::iterator i;
+    BDD conjunction = src;
+    for(i = latches.begin(); i != latches.end(); i++)
+	conjunction &= nextFun[*i].Xnor(spec.ofLit(spec.primeVar(*i)));
+    BDD cinput_cube = spec.cinputCube();
+    BDD uinput_cube = spec.uinputCube();
+    BDD temp_bdd = conjunction.ExistAbstract(cinput_cube);
+    return spec.unprimeLatchesInBdd(temp_bdd);
 }
 
 static bool internalSolve(Cudd* mgr, BDDAIG* spec, const BDD* upre_init, 
@@ -316,6 +320,14 @@ bool solve(AIG* spec_base, Cudd_ReorderingType reordering) {
     mgr.AutodynEnable(reordering);
     BDDAIG spec(*spec_base, &mgr);
     return internalSolve(&mgr, &spec, NULL, NULL, NULL, true);
+}
+
+BDD reachable(AIG & spec_base) {
+    Cudd mgr(0, 0);
+    mgr.AutodynEnable(CUDD_REORDER_SIFT);
+    BDDAIG spec(spec_base, &mgr);
+    BDD init = spec.initState();
+    return post(spec,init);
 }
 
 bool compSolve1(AIG* spec_base) {

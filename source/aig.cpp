@@ -100,7 +100,7 @@ AIG::AIG(const char* aiger_file_name, bool intro_error_latch) {
         new std::unordered_map<unsigned,
                                std::pair<std::vector<unsigned>,
                                          std::vector<unsigned>>>();
-    // start lodaing
+    // start loading
     this->spec = aiger_init();
     const char* err = aiger_open_and_read_from_file (spec, aiger_file_name);
     if (err) {
@@ -432,6 +432,18 @@ BDD BDDAIG::primeLatchesInBdd(BDD original) {
     return result;
 }
 
+
+BDD BDDAIG::unprimeLatchesInBdd(BDD & original) {
+    std::vector<BDD> latch_bdds, primed_latch_bdds;
+    std::vector<aiger_symbol*>::iterator i;
+    for (i = this->latches.begin(); i != this->latches.end(); i++) {
+        latch_bdds.push_back(this->mgr->bddVar((*i)->lit));
+        primed_latch_bdds.push_back(this->mgr->bddVar(AIG::primeVar((*i)->lit)));
+    }
+    BDD result = original.SwapVariables(primed_latch_bdds,latch_bdds);
+    return result;
+}
+
 BDD BDDAIG::primedLatchCube() {
     if (this->primed_latch_cube == NULL) {
         BDD result = this->mgr->bddOne();
@@ -472,6 +484,9 @@ BDD BDDAIG::toCube(std::set<unsigned> &vars) {
     return result;
 }
 
+BDD BDDAIG::ofLit(unsigned var) {
+  return this->mgr->bddVar(var);
+}
 
 BDD BDDAIG::lit2bdd(unsigned lit) {
     BDD result;
@@ -539,7 +554,7 @@ std::vector<unsigned> AIG::getLatchLits(){
     return v;
 }
 
-std::vector<BDD> BDDAIG::nextFunComposeVec(BDD* care_region=NULL) {
+std::vector<BDD> BDDAIG::nextFunComposeVec(BDD* care_region) {
     if (this->next_fun_compose_vec == NULL) {
         //dbgMsg("building and caching next_fun_compose_vec");
         this->next_fun_compose_vec = new std::vector<BDD>();
