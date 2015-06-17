@@ -136,17 +136,17 @@ AIG::AIG(const char* aiger_file_name, bool intro_error_latch) {
 #ifndef NDEBUG
     // print some debug information
     std::string litstring;
-    for (std::vector<aiger_symbol*>::iterator i = this->latches.begin();
+    for (std::vector<aiger_symbol*>::const_iterator i = this->latches.begin();
          i != this->latches.end(); i++)
         litstring += std::to_string((*i)->lit) + ", ";
     dbgMsg(std::to_string(this->latches.size()) + " Latches: " + litstring);
     litstring.clear();
-    for (std::vector<aiger_symbol*>::iterator i = this->c_inputs.begin();
+    for (std::vector<aiger_symbol*>::const_iterator i = this->c_inputs.begin();
          i != this->c_inputs.end(); i++)
         litstring += std::to_string((*i)->lit) + ", ";
     dbgMsg(std::to_string(this->c_inputs.size()) + " C.Inputs: " + litstring);
     litstring.clear();
-    for (std::vector<aiger_symbol*>::iterator i = this->u_inputs.begin();
+    for (std::vector<aiger_symbol*>::const_iterator i = this->u_inputs.begin();
          i != this->u_inputs.end(); i++)
         litstring += std::to_string((*i)->lit) + ", ";
     dbgMsg(std::to_string(this->u_inputs.size()) + " U.Inputs: " + litstring);
@@ -433,7 +433,7 @@ BDD BDDAIG::primeLatchesInBdd(BDD original) {
 }
 
 
-BDD BDDAIG::unprimeLatchesInBdd(BDD & original) {
+BDD BDDAIG::unprimeLatchesInBdd(const BDD & original) {
     std::vector<BDD> latch_bdds, primed_latch_bdds;
     std::vector<aiger_symbol*>::iterator i;
     for (i = this->latches.begin(); i != this->latches.end(); i++) {
