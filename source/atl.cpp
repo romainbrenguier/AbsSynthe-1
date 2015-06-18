@@ -1,77 +1,66 @@
 #include <iostream>
-//#include <regex>
 #include "aig.h"
+#include "atl.h"
 using namespace std;
 
 
-class StateFormula {
-public:
-  typedef enum { Atomic, Or, And, Not } oper;
+StateFormula::StateFormula (oper o, StateFormula * l, StateFormula * r) 
+{
+  op = o;
+  data.left = l;
+  data.right = r;
+}
 
-private:
-  typedef union {
-    string * prop;
-    struct {
-      StateFormula * left; 
-      StateFormula * right;
-    };
-  } state_formula_data;
-
-
-  oper op;
-  state_formula_data data;
-
-  StateFormula (oper o, StateFormula * l, StateFormula * r) 
-  {
-    op = o;
-    data.left = l;
-    data.right = r;
-  }
-
-public:
-  StateFormula (string p) {
-    op = Atomic;
-    data.prop = new string(p);
-  }
+StateFormula::StateFormula (string p) {
+  op = Atomic;
+  data.prop = new string(p);
+}
   
 
-  StateFormula operator~ () {
-    return StateFormula(Not,this,NULL);
-  }
+StateFormula StateFormula::operator~ () {
+  return StateFormula(Not,this,NULL);
+}
 
-  StateFormula operator| (StateFormula f) {
-    StateFormula * g = new StateFormula(f);
-    return StateFormula(Or,this,g);
-  }
+StateFormula StateFormula::operator| (StateFormula f) {
+  StateFormula * g = new StateFormula(f);
+  return StateFormula(Or,this,g);
+}
 
-  StateFormula operator& (StateFormula f) {
-    StateFormula * g = new StateFormula(f);
-    return StateFormula(And,this,g);
-  }
+StateFormula StateFormula::operator& (StateFormula f) {
+  StateFormula * g = new StateFormula(f);
+  return StateFormula(And,this,g);
+}
 
-  BDD of_aiger(BDDAIG aig, aiger spec) {
-    switch(op) {
-    case Atomic:
-      for(unsigned i=0; i<spec.num_latches; i++) {
-	cout << spec.latches[i].name << endl; 
-	if(*data.prop == spec.latches[i].name)
-	  return aig.ofLit(spec.latches[i].lit);
-      }
-      for(unsigned i=0; i<spec.num_outputs; i++) {
-	cout << spec.outputs[i].name << endl; 
-	if(*data.prop == spec.outputs[i].name)
-	  return aig.ofLit(spec.outputs[i].lit);
-      }
-      for(unsigned i=0; i<spec.num_inputs; i++) {
-	cout << spec.inputs[i].name << endl; 
-	if(*data.prop == spec.inputs[i].name)
-	  return aig.ofLit(spec.inputs[i].lit);
-      }
-      break;
+
+BDD StateFormula::of_aiger(BDDAIG & aig, const aiger & spec) {
+  if(op == Atomic){
+    for(unsigned i=0; i<spec.num_latches; i++) 
+      if(*data.prop == spec.latches[i].name)
+	return aig.ofLit(spec.latches[i].lit);
+    for(unsigned i=0; i<spec.num_outputs; i++) 
+      if(*data.prop == spec.outputs[i].name)
+	return aig.ofLit(spec.outputs[i].lit);
+    for(unsigned i=0; i<spec.num_inputs; i++)
+      if(*data.prop == spec.inputs[i].name)
+	return aig.ofLit(spec.inputs[i].lit);
+    cerr << "Error: no variable named " << *data.prop << " in the given circuit." << endl;
+    return aig.manager()->bddZero();
+  } else {
+    BDD l = data.left->of_aiger(aig,spec);
+    if(op == Not)
+      return (~l);
+    else {
+      BDD r = data.right->of_aiger(aig,spec);
+       if (op == Or) return (l | r);
+       else {
+	 assert(op == And);
+	 return (l & r);
+       }
     }
   }
+}
   
-  void display(ostream & out) {
+void StateFormula::display(ostream & out) {
     out << "(";
     switch(op) {
     case Atomic : 
@@ -93,8 +82,7 @@ public:
       break;
     }
     out << ")";
-  }
-};
+}
 
 ostream & operator<<(ostream & out, StateFormula sf) 
 {
@@ -102,83 +90,73 @@ ostream & operator<<(ostream & out, StateFormula sf)
   return out;
 }
 
-class ATLFormula {
-public:
-  typedef enum { M_AU, M_AX, M_EU, M_EX, M_SF} modality;
 
-private:
-  modality mod;
-  string * coalition;
-  ATLFormula * left;
-  ATLFormula * right;
-  StateFormula * sf;
 
-  ATLFormula(modality m, string s, ATLFormula * l, ATLFormula * r) {
-    mod = m;
-    coalition = new string(s);
-    left = l;
-    right = r;
+ATLFormula::ATLFormula(modality m, string s, ATLFormula * l, ATLFormula * r) {
+  mod = m;
+  coalition = new string(s);
+  left = l;
+  right = r;
+}
+
+ATLFormula::ATLFormula(StateFormula s) : mod(M_SF) 
+{
+  sf = new StateFormula(s);
+}
+
+ATLFormula ATLFormula::AU(string c, ATLFormula r) {
+  ATLFormula * l = new ATLFormula(*this);
+  ATLFormula * rf = new ATLFormula(r);
+  return ATLFormula(M_AU,c,l,rf);    
+}
+
+ATLFormula ATLFormula::AX(string c) {
+  ATLFormula * l = new ATLFormula(*this);
+  return ATLFormula(M_AX,c,l,NULL);    
+}
+
+ATLFormula ATLFormula::EU(string c, ATLFormula r) {
+  ATLFormula * l = new ATLFormula(*this);
+  ATLFormula * rf = new ATLFormula(r);
+  return ATLFormula(M_EU,c,l,rf);    
+}
+
+ATLFormula ATLFormula::EX(string c) {
+  ATLFormula * l = new ATLFormula(*this);
+  return ATLFormula(M_EX,c,l,NULL);    
+}
+
+void ATLFormula::display(ostream & out) {
+  out << "(";
+  switch(mod) {
+  case M_AU: 
+    out << "[" << *coalition << "] ";
+    left->display(out);
+    out << " U ";
+    right->display(out);
+    break;
+  case M_AX: 
+    out << "[" << *coalition << "] X ";
+    left->display(out);
+    break;
+  case M_EU: 
+    out << "<" << *coalition << "> ";
+    left->display(out);
+    out << " U ";
+    right->display(out);
+    break;
+  case M_EX: 
+    out << "<" << *coalition << "> X ";
+    left->display(out);
+    break;
+  case M_SF:
+    out << *sf;
+    break;
   }
+  out << ")";
+}
 
-public: 
-  ATLFormula(StateFormula s) : mod(M_SF) 
-  {
-    sf = new StateFormula(s);
-  }
 
-  ATLFormula AU(string c, ATLFormula r) {
-    ATLFormula * l = new ATLFormula(*this);
-    ATLFormula * rf = new ATLFormula(r);
-    return ATLFormula(M_AU,c,l,rf);    
-  }
-
-  ATLFormula AX(string c) {
-    ATLFormula * l = new ATLFormula(*this);
-    return ATLFormula(M_AX,c,l,NULL);    
-  }
-
-  ATLFormula EU(string c, ATLFormula r) {
-    ATLFormula * l = new ATLFormula(*this);
-    ATLFormula * rf = new ATLFormula(r);
-    return ATLFormula(M_EU,c,l,rf);    
-  }
-
-  ATLFormula EX(string c) {
-    ATLFormula * l = new ATLFormula(*this);
-    return ATLFormula(M_EX,c,l,NULL);    
-  }
-
-  void display(ostream & out) {
-    out << "(";
-    switch(mod) {
-    case M_AU: 
-      out << "[" << *coalition << "] ";
-      left->display(out);
-      out << " U ";
-      right->display(out);
-      break;
-    case M_AX: 
-      out << "[" << *coalition << "] X ";
-      left->display(out);
-      break;
-    case M_EU: 
-      out << "<" << *coalition << "> ";
-      left->display(out);
-      out << " U ";
-      right->display(out);
-      break;
-    case M_EX: 
-      out << "<" << *coalition << "> X ";
-      left->display(out);
-      break;
-    case M_SF:
-      out << *sf;
-      break;
-    }
-    out << ")";
-  }
-
-};
 
 ostream & operator<<(ostream & out, ATLFormula a) 
 {
@@ -186,12 +164,25 @@ ostream & operator<<(ostream & out, ATLFormula a)
   return out;
 }
 
-int main()
+int main(int argc, char ** argv)
 {
-  StateFormula h("hello");
-  StateFormula w("world");
+  StateFormula h("push_1<0>");
+  StateFormula w("accept<0>");
   StateFormula x = h | w;
   cout << x << endl;
+
+  Cudd mgr(0, 0);
+  mgr.AutodynEnable(CUDD_REORDER_SIFT);
+  if(argc < 2)
+    printf("usage: %s aiger_file.aig\n", argv[0]);
+  else {
+    AIG aig(argv[1]);
+    BDDAIG bdd_aig(aig,&mgr);
+    BDD b = x.of_aiger(bdd_aig,*aig.spec);
+    cout << "Writing test.dot" << endl;
+    bdd_aig.dump2dot(b,"test.dot");
+  }
+  
   ATLFormula f = ATLFormula(x).AX("a1");
   cout << f << endl;
 }

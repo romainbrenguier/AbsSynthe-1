@@ -38,7 +38,16 @@
 
 /* A class for AIG (And Inverted Graphs) */
 class AIG {
-    public:
+ public:
+  // Initialize an AIG by reading it from a file.
+  // When the parameter intro_error_latch is set to true, then we will add an additional latch for the error output.
+  AIG(const char*, bool intro_error_latch=true);
+
+        // Initialize an AIG by copying an existing one.
+        AIG(const AIG&);
+
+        ~AIG();
+
 	// Take a literal as input and give the literal representing its negation.
 	static unsigned negateLit(unsigned lit) { return lit ^ 1; }
 
@@ -46,15 +55,6 @@ class AIG {
 	static bool litIsNegated(unsigned lit) { return (lit & 1) == 1; }
 	// Return a non-negated version of the literal.
         static unsigned stripLit(unsigned lit) { return lit & ~1; }
-
-	// Initialize an AIG by reading it from a file.
-	// When the parameter intro_error_latch is set to true, then we will add an additional latch for the error output.
-        AIG(const char*, bool intro_error_latch=true);
-
-        // Initialize an AIG by copying an existing one.
-        AIG(const AIG&);
-
-        ~AIG();
 
 	// Maximum variable that is used in the AIG.
         // (the literal that represents a variable is obtained by multiplying it by two).
@@ -77,12 +77,15 @@ class AIG {
 ///Why is this public?
         void removeErrorLatch();
 
+
+	// I'm making this public because it can be usefull
+        aiger* spec;
+
     private:
         bool must_clean;
         void cleanCaches();
 
     protected:
-        aiger* spec;
         std::vector<aiger_symbol*> latches;
         std::vector<aiger_symbol*> c_inputs;
         std::vector<aiger_symbol*> u_inputs;
@@ -106,18 +109,19 @@ class AIG {
 class BDDAIG : public AIG {
 
     public:
+	// Initialization from an AIG and a manager
+        BDDAIG(const AIG&, Cudd*);
+	// Initialization by copying an existing BDDAIG and ???
+        BDDAIG(const BDDAIG&, BDD);
+	// Destructor.
+        ~BDDAIG();
+
 	// The result coincide with the first argument on the valuation that satisfy the second argument, and is smaller than the first argument.
         static BDD safeRestrict(BDD, BDD);
 	// ??
         std::set<unsigned> semanticDeps(BDD);
 	// Returns a literal used to represent its next valuation
         static unsigned primeVar(unsigned lit) { return AIG::stripLit(lit) + 1; }
-	// Initialization from an AIG and ???
-        BDDAIG(const AIG&, Cudd*);
-	// Initialization by copying an existing BDDAIG and ???
-        BDDAIG(const BDDAIG&, BDD);
-	// Destructor.
-        ~BDDAIG();
         void dump2dot(BDD, const char*);
 	// Returns a BDD representing the initial state.
         BDD initState();
@@ -126,7 +130,7 @@ class BDDAIG : public AIG {
 	// Returns a BDD where all latches have been replaced by the corresponding next literal.
         BDD primeLatchesInBdd(BDD);
 	// Returns a BDD where all primed latches have been replaced by the original (unprimed) literal.
-        BDD unprimeLatchesInBdd(BDD &);
+        BDD unprimeLatchesInBdd(const BDD &);
 	// Cube containing the latch literals 
         BDD primedLatchCube();
 	// Cube containing the controllable inputs literals 
@@ -146,6 +150,8 @@ class BDDAIG : public AIG {
 	 * The argument is represents a care region, it is set to NULL by default. */
         std::vector<BDD> nextFunComposeVec(BDD* care_region=NULL);
         std::vector<BDDAIG*> decompose();
+
+	Cudd* manager();
 
     private:
         bool must_clean;

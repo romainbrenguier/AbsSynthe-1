@@ -554,6 +554,8 @@ std::vector<unsigned> AIG::getLatchLits(){
     return v;
 }
 
+Cudd * BDDAIG::manager() { return mgr; }
+
 std::vector<BDD> BDDAIG::nextFunComposeVec(BDD* care_region) {
     if (this->next_fun_compose_vec == NULL) {
         //dbgMsg("building and caching next_fun_compose_vec");

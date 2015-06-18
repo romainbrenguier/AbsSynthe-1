@@ -16,8 +16,18 @@ CUDD_LIBS=$(CUDD_PATH)/obj/libobj.a \
 abssynthe: $(HEADERS) $(SOURCES) $(CUDD_HDRS) $(CUDD_LIBS)
 	$(CXX) $(CXXFLAGS) $(SOURCES) abssynthe.cpp $(CUDD_LIBS) -o abssynthe -I $(CUDD_HDRS)
 
-atl:  $(HEADERS) $(SOURCES) atl.cpp $(CUDD_HDRS) $(CUDD_LIBS)
-	$(CXX) $(CXXFLAGS) $(SOURCES) atl.cpp $(CUDD_LIBS) -o atl -I $(CUDD_HDRS)
+logging.o: $(HEADERS) logging.cpp $(CUDD_HDRS) $(CUDD_LIBS)
+	$(CXX) $(CXXFLAGS) logging.cpp -c -I $(CUDD_HDRS)
+
+aig.o:  $(HEADERS) aig.cpp $(CUDD_HDRS) $(CUDD_LIBS)
+	$(CXX) $(CXXFLAGS) aig.cpp -c -I $(CUDD_HDRS)
+
+aiger.o: $(HEADERS) aiger.c $(CUDD_HDRS) $(CUDD_LIBS)
+	$(CXX) $(CXXFLAGS) aiger.c -c 
+ 
+atl:  $(HEADERS) atl.cpp $(CUDD_HDRS) $(CUDD_LIBS) aiger.o aig.o logging.o
+	$(CXX) $(CXXFLAGS) logging.o aig.o aiger.o atl.cpp $(CUDD_LIBS) -o atl -I $(CUDD_HDRS)
 
 clean:
 	rm -f abssynthe
+
