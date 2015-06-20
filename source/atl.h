@@ -11,7 +11,7 @@ class StateFormula {
   StateFormula operator~ ();
   StateFormula operator| (StateFormula f);
   StateFormula operator& (StateFormula f);
-  BDD of_aiger(BDDAIG & aig, const aiger & spec);
+  BDD to_bdd(BDDAIG & aig, const aiger & spec);
   void display(std::ostream & out);
   
  private:
@@ -26,7 +26,6 @@ class StateFormula {
 
   oper op;
   state_formula_data data;
-
   StateFormula (oper o, StateFormula * l, StateFormula * r);
 };
 
@@ -35,13 +34,18 @@ std::ostream & operator<<(std::ostream & out, StateFormula sf);
 
 class ATLFormula {
 public:
-  typedef enum { M_AU, M_AX, M_EU, M_EX, M_SF} modality;
+  typedef enum { M_AU, M_AX, M_EU, M_EX, M_SF, M_AND, M_OR, M_NOT} modality;
   ATLFormula(StateFormula s);
   ATLFormula AU(std::string c, ATLFormula r);
   ATLFormula AX(std::string c);
   ATLFormula EU(std::string c, ATLFormula r);
   ATLFormula EX(std::string c);
+  ATLFormula operator&(ATLFormula r);
+  ATLFormula operator|(ATLFormula r);
+  ATLFormula operator~();
+  //  ~ATLFormula();
   void display(std::ostream & out);
+  BDD to_bdd(BDDAIG & aig, const aiger & spec);
 
 private:
   modality mod;
