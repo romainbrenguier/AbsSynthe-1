@@ -36,63 +36,15 @@
 
 #include "aiger.h"
 
-/* A class for AIG (And Inverted Graphs) */
 class AIG {
- public:
-  // Initialize an AIG by reading it from a file.
-  // When the parameter intro_error_latch is set to true, then we will add an additional latch for the error output.
-  AIG(const char*, bool intro_error_latch=true);
-
-        // Initialize an AIG by copying an existing one.
-        AIG(const AIG&);
-
-        ~AIG();
-
-	// Take a literal as input and give the literal representing its negation.
-	static unsigned negateLit(unsigned lit) { return lit ^ 1; }
-
-	// Tells if a literal represent the negation of a gate or input.
-	static bool litIsNegated(unsigned lit) { return (lit & 1) == 1; }
-	// Return a non-negated version of the literal.
-        static unsigned stripLit(unsigned lit) { return lit & ~1; }
-
-	// Maximum variable that is used in the AIG.
-        // (the literal that represents a variable is obtained by multiplying it by two).
-        unsigned maxVar();
-
-	// Add a gate the current AIG. 
-        // The first argument is the literal corresponding to the gate to be added, and the two following arguments are the literals of which this gate should compute the conjunction.
-        void addGate(unsigned, unsigned, unsigned);
-
-        // The first argument is a literal representing an input of the circuit and the second a gate. ????
-        void input2gate(unsigned, unsigned);
-
-        void writeToFile(const char*);
-        std::vector<aiger_symbol*> getLatches() { return this->latches; }
-        std::vector<aiger_symbol*> getCInputs() { return this->c_inputs; }
-        unsigned numLatches();
-        std::vector<unsigned> getCInputLits();
-        std::vector<unsigned> getUInputLits();
-        std::vector<unsigned> getLatchLits();
-///Why is this public?
-        void removeErrorLatch();
-
-
-	// I'm making this public because it can be usefull
-        aiger* spec;
-
     private:
         bool must_clean;
-        void cleanCaches();
-
     protected:
+        aiger* spec;
         std::vector<aiger_symbol*> latches;
         std::vector<aiger_symbol*> c_inputs;
         std::vector<aiger_symbol*> u_inputs;
         aiger_symbol* error_fake_latch;
-
-
-	
         void introduceErrorLatch();
         std::unordered_map<unsigned, std::set<unsigned>>* lit2deps_map;
         std::unordered_map<unsigned,
@@ -104,61 +56,34 @@ class AIG {
                              std::unordered_set<unsigned>*);
         std::set<unsigned> getLitDeps(unsigned);
         static unsigned primeVar(unsigned lit) { return AIG::stripLit(lit) + 1; }
+    public:
+        void removeErrorLatch();
+        static unsigned negateLit(unsigned lit) { return lit ^ 1; }
+        static bool litIsNegated(unsigned lit) { return (lit & 1) == 1; }
+        static unsigned stripLit(unsigned lit) { return lit & ~1; }
+        AIG(const char*, bool intro_error_latch=true);
+        AIG(const AIG&);
+        ~AIG();
+        void cleanCaches();
+        unsigned maxVar();
+        void addGate(unsigned, unsigned, unsigned);
+        void input2gate(unsigned, unsigned);
+        void writeToFile(const char*);
+        std::vector<aiger_symbol*> getLatches() { return this->latches; }
+        std::vector<aiger_symbol*> getCInputs() { return this->c_inputs; }
+        unsigned numLatches();
+        std::vector<unsigned> getCInputLits();
+        std::vector<unsigned> getUInputLits();
+        std::vector<unsigned> getLatchLits();
 };
 
 class BDDAIG : public AIG {
-
-    public:
-	// Initialization from an AIG and a manager
-        BDDAIG(const AIG&, Cudd*);
-	// Initialization by copying an existing BDDAIG and ???
-        BDDAIG(const BDDAIG&, BDD);
-	// Destructor.
-        ~BDDAIG();
-
-	// The result coincide with the first argument on the valuation that satisfy the second argument, and is smaller than the first argument.
-        static BDD safeRestrict(BDD, BDD);
-	// ??
-        std::set<unsigned> semanticDeps(BDD);
-	// Returns a literal used to represent its next valuation
-        static unsigned primeVar(unsigned lit) { return AIG::stripLit(lit) + 1; }
-        void dump2dot(BDD, const char*);
-	// Returns a BDD representing the initial state.
-        BDD initState();
-	// Returns a BDD representing the error states.
-        BDD errorStates();
-	// Returns a BDD where all latches have been replaced by the corresponding next literal.
-        BDD primeLatchesInBdd(BDD);
-	// Returns a BDD where all primed latches have been replaced by the original (unprimed) literal.
-        BDD unprimeLatchesInBdd(const BDD &);
-	// Cube containing the latch literals 
-        BDD primedLatchCube();
-	// Cube containing the controllable inputs literals 
-        BDD cinputCube();
-	// Cube containing the uncontrollable inputs literals 
-        BDD uinputCube();
-	// BDD representing the transition relation ?????
-        BDD transRelBdd();
-	// Takes a set of literals and return the corresponding cube
-        BDD toCube(std::set<unsigned>&);
-	BDD ofLit(unsigned);
-        std::set<unsigned> getBddDeps(BDD);
-        std::set<unsigned> getBddLatchDeps(BDD);
-
-	/*
-	 * Returns for each latch the BDD that represents its update function.
-	 * The argument is represents a care region, it is set to NULL by default. */
-        std::vector<BDD> nextFunComposeVec(BDD* care_region=NULL);
-        std::vector<BDDAIG*> decompose();
-
-	Cudd* manager();
-
     private:
         bool must_clean;
-
     protected:
         Cudd* mgr;
         BDD* primed_latch_cube;
+        BDD* latch_cube;
         BDD* cinput_cube;
         BDD* uinput_cube;
         BDD* trans_rel;
@@ -170,6 +95,27 @@ class BDDAIG : public AIG {
         std::vector<BDD> mergeSomeSignals(BDD, std::vector<unsigned>*);
         bool isValidLatchBdd(BDD);
         bool isValidBdd(BDD);
+    public:
+        static BDD safeRestrict(BDD, BDD);
+        std::set<unsigned> semanticDeps(BDD);
+        static unsigned primeVar(unsigned lit) { return AIG::stripLit(lit) + 1; }
+        BDDAIG(const AIG&, Cudd*);
+        BDDAIG(const BDDAIG&, BDD);
+        ~BDDAIG();
+        void dump2dot(BDD, const char*);
+        BDD initState();
+        BDD errorStates();
+        BDD primeLatchesInBdd(BDD);
+        BDD primedLatchCube();
+        BDD latchCube();
+        BDD cinputCube();
+        BDD uinputCube();
+        BDD transRelBdd();
+        BDD toCube(std::set<unsigned>&);
+        std::set<unsigned> getBddDeps(BDD);
+        std::set<unsigned> getBddLatchDeps(BDD);
+        std::vector<BDD> nextFunComposeVec(BDD*);
+        std::vector<BDDAIG*> decompose();
 };
 
 #endif

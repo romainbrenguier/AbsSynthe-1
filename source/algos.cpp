@@ -41,7 +41,7 @@
 #include "abssynthe.h"
 #include "logging.h"
 #include "aig.h"
-#include "algos.h"
+
 
 using namespace std;
 
@@ -85,8 +85,9 @@ static unsigned bdd2aig(Cudd* mgr, BDDAIG* spec, BDD a_bdd,
                         unordered_map<unsigned long, unsigned>* cache) {
     unordered_map<unsigned long, unsigned>::iterator cache_hit =
         cache->find((unsigned long) a_bdd.getRegularNode());
+    unsigned res;
     if (cache_hit != cache->end()) {
-        unsigned res = (*cache_hit).second;
+        res = (*cache_hit).second;
         if (Cudd_IsComplement(a_bdd.getNode()))
             res = AIG::negateLit(res);
         return res;
@@ -94,27 +95,6 @@ static unsigned bdd2aig(Cudd* mgr, BDDAIG* spec, BDD a_bdd,
 
     if (Cudd_IsConstant(a_bdd.getNode()))
         return (a_bdd == mgr->bddOne()) ? 1 : 0;
-
-    unsigned a_lit = a_bdd.NodeReadIndex();
-
-    BDD then_bdd(*mgr, Cudd_T(a_bdd.getNode()));
-    BDD else_bdd(*mgr, Cudd_E(a_bdd.getNode()));
-    /* We are performing the following operation
-     *
-     * ite(a_bdd, then_bdd, else_bdd)
-     * = a^then v ~a^else
-     * = ~(~(a^then) ^ ~(~a^else))
-     *
-     * so we need 3 more ANDs
-     */
-    unsigned then_lit = bdd2aig(mgr, spec, then_bdd, cache);
-    unsigned else_lit = bdd2aig(mgr, spec, else_bdd, cache);
-    unsigned a_then_lit = optimizedGate(spec, a_lit, then_lit);
-    unsigned na_else_lit = optimizedGate(spec, AIG::negateLit(a_lit), else_lit);
-    unsigned n_a_then_lit = AIG::negateLit(a_then_lit);
-    unsigned n_na_else_lit = AIG::negateLit(na_else_lit);
-    unsigned ite_lit = optimizedGate(spec, n_a_then_lit, n_na_else_lit);
-    unsigned res = AIG::negateLit(ite_lit);
 
     (*cache)[(unsigned long) a_bdd.getRegularNode()] = res;
 
@@ -210,7 +190,7 @@ static vector<pair<unsigned, BDD>> synthAlgo(Cudd* mgr, BDDAIG* spec,
 }
 
 static void finalizeSynth(Cudd* mgr, BDDAIG* spec, 
-                          vector<pair<unsigned, BDD>> result) {
+                          vector<pair<unsigned, BDD>> result, AIG* original=NULL) {
     // let us clean the AIG before we start introducing new stuff
     spec->removeErrorLatch();
     // we now get rid of all controllable inputs in the aig spec by replacing
@@ -218,9 +198,21 @@ static void finalizeSynth(Cudd* mgr, BDDAIG* spec,
     // NOTE: because of the way bdd2aig is implemented, we must ensure that BDDs are
     // no longer operated on after this point!
     unordered_map<unsigned long, unsigned> cache;
+    vector<unsigned> cinputs;
+    if (original != NULL)
+        cinputs = original->getCInputLits();
     for (vector<pair<unsigned, BDD>>::iterator i = result.begin();
-         i != result.end(); i++)
+         i != result.end(); i++) {
         spec->input2gate(i->first, bdd2aig(mgr, spec, i->second, &cache));
+        if (original != NULL)
+            cinputs.erase(remove(cinputs.begin(), cinputs.end(), i->first), cinputs.end());
+    }
+    if (original != NULL) {
+        for (vector<unsigned>::iterator i = cinputs.begin(); i != cinputs.end(); i++) {
+            logMsg("Setting unused cinput " + to_string(*i));
+            spec->input2gate(*i, bdd2aig(mgr, spec, ~mgr->bddOne() , &cache));
+        }
+    }
     // Finally, we write the modified spec to file
     spec->writeToFile(settings.out_file);
 }
@@ -238,6 +230,16 @@ static BDD substituteLatchesNext(BDDAIG* spec, BDD dst, BDD* care_region=NULL) {
     } else {
         vector<BDD> next_funs = spec->nextFunComposeVec(care_region);
         result = dst.VectorCompose(next_funs);
+#if false
+        BDD trans_rel_bdd = spec->transRelBdd();
+        BDD primed_dst = spec->primeLatchesInBdd(dst);
+        BDD primed_latch_cube = spec->primedLatchCube();
+        BDD result2 = trans_rel_bdd.AndAbstract(primed_dst,
+                                                primed_latch_cube);
+        if (result != result2) {
+            errMsg("Vector compose resulted in the wrong BDD");
+        }
+#endif
     }
     return result;
 }
@@ -253,19 +255,6 @@ static BDD upre(BDDAIG* spec, BDD dst, BDD &trans_bdd) {
     return temp_bdd.ExistAbstract(uinput_cube);
 }
 
-
-static BDD post(BDDAIG & spec, BDD & src) {
-    std::vector<BDD> nextFun = spec.nextFunComposeVec();
-    std::vector<unsigned> latches = spec.getLatchLits();
-    std::vector<unsigned>::iterator i;
-    BDD conjunction = src;
-    for(i = latches.begin(); i != latches.end(); i++)
-	conjunction &= nextFun[*i].Xnor(spec.ofLit(spec.primeVar(*i)));
-    BDD cinput_cube = spec.cinputCube();
-    BDD uinput_cube = spec.uinputCube();
-    BDD temp_bdd = conjunction.ExistAbstract(cinput_cube);
-    return spec.unprimeLatchesInBdd(temp_bdd);
-}
 
 static bool internalSolve(Cudd* mgr, BDDAIG* spec, const BDD* upre_init, 
                           BDD* losing_region, BDD* losing_transitions,
@@ -286,6 +275,7 @@ static bool internalSolve(Cudd* mgr, BDDAIG* spec, const BDD* upre_init,
     BDD prev_error = ~mgr->bddOne();
     includes_init = ((init_state & error_states) != ~mgr->bddOne());
     while (!includes_init && error_states != prev_error) {
+      dbgMsg("Fixpoint step "+to_string(cnt));
         prev_error = error_states;
         error_states = prev_error | upre(spec, prev_error, bad_transitions);
         includes_init = ((init_state & error_states) != ~mgr->bddOne());
@@ -322,12 +312,179 @@ bool solve(AIG* spec_base, Cudd_ReorderingType reordering) {
     return internalSolve(&mgr, &spec, NULL, NULL, NULL, true);
 }
 
-BDD reachable(AIG & spec_base) {
+/// ABSTRACTION ALGORITHM
+// See syntcomp/abssynthe-16/abstraction.tex
+static BDD abstract_safe_cpre_aux(BDDAIG* spec, BDD safe, BDD cache) {
+  BDD trans_bdd = cache;
+  BDD temp_bdd = trans_bdd.ExistAbstract(spec->cinputCube());
+  return temp_bdd.UnivAbstract(spec->uinputCube());
+}
+
+//static pair<BDD,BDD>  abstract_safe_cpre(BDDAIG* spec, BDD safe, BDD untracked_latches) {
+static BDD abstract_safe_cpre(BDDAIG* spec, BDD safe, BDD untracked_latches,
+			      BDD & cache_trans_bdd,
+			      BDD & cache_non_abstracted_result) {
+  BDD care = ~ safe;
+  cache_trans_bdd = substituteLatchesNext(spec, safe,&care);
+  BDD temp_bdd = cache_trans_bdd.ExistAbstract(spec->cinputCube());
+  cache_non_abstracted_result = temp_bdd.UnivAbstract(spec->uinputCube());
+
+  if(untracked_latches.IsZero())
+    return cache_non_abstracted_result;
+  else
+    return cache_non_abstracted_result.ExistAbstract(untracked_latches);
+
+}
+
+static bool internalSolveAbstract(Cudd* mgr, BDDAIG* spec, int threshold, bool do_synth=false) {
+  unsigned cnt = 0;
+  dbgMsg("Internal solve abstract, threshold = "+to_string(threshold));
+  BDD init_state = spec->initState();
+  BDD error_states = spec->errorStates();
+  BDD mayWin = ~error_states;
+  BDD cache_trans_bdd;
+  BDD cache_non_abstracted_result;
+
+  bool fixpoint = false;
+
+  while ((! (init_state & mayWin).IsZero()) && (! fixpoint) && mayWin.nodeCount() < threshold) {
+    dbgMsg("Algos.cpp: Fixpoint step "+to_string(++cnt)+" Bdd size : "+to_string(mayWin.nodeCount()));
+    BDD mayWin1 = mayWin & abstract_safe_cpre(spec, mayWin,mgr->bddZero(),cache_trans_bdd, cache_non_abstracted_result);
+    fixpoint = (mayWin1 == mayWin);
+    mayWin = mayWin1;
+  }
+
+  BDD implicant = (~ mayWin).LargestCube();
+  BDD tracked_latches = implicant.Support();
+  BDD untracked_latches = spec->latchCube().ExistAbstract(tracked_latches);
+  mayWin = mayWin.ExistAbstract(untracked_latches);
+  //~implicant;
+
+  while ((!(init_state & mayWin).IsZero()) && (! fixpoint))
+    {
+      dbgMsg("Algos.cpp: Fixpoint step "+to_string(++cnt)+" Bdd size : "+to_string(mayWin.nodeCount()));
+      dbgMsg("Number of untracked latches = "+to_string(untracked_latches.SupportSize()));
+
+      BDD mayWin1 = mayWin & abstract_safe_cpre(spec, mayWin, untracked_latches,cache_trans_bdd, cache_non_abstracted_result);
+
+      if (mayWin1 == mayWin) 
+	{
+	  dbgMsg("Promoting");
+	  BDD mayLose = mayWin & ~cache_non_abstracted_result;
+	  implicant = mayLose.LargestCube();
+	  dbgMsg("Size of the implicant = "+to_string(implicant.SupportSize()));
+	  BDD new_untracked = untracked_latches.ExistAbstract(implicant.Support());
+	  dbgMsg("Number of newly untracked latches = "+to_string(new_untracked.SupportSize()));	  
+	  if(new_untracked == untracked_latches){
+	    dbgMsg("fixpoint");
+	    fixpoint = true;}
+	  else{
+	    untracked_latches = new_untracked;
+	    }
+
+	  mayWin = mayWin & ~ mayLose.UnivAbstract(untracked_latches);
+	}
+
+      mayWin = mayWin1;
+    }
+
+  BDD bad_transitions = ~abstract_safe_cpre_aux(spec,mayWin,cache_trans_bdd);
+
+  bool includes_init = (init_state & mayWin).IsZero();
+  dbgMsg("Early exit? " + to_string(includes_init) + 
+	 ", after " + to_string(cnt) + " iterations.");
+
+  if (!includes_init && do_synth && settings.out_file != NULL) {
+    dbgMsg("Starting synthesis, acquiring lock on synth mutex");
+    if (data != NULL) pthread_mutex_lock(&data->synth_mutex);
+    finalizeSynth(mgr, spec, 
+		  synthAlgo(mgr, spec, ~bad_transitions, ~error_states));
+  }
+  return !includes_init;
+}
+
+
+static bool internalSolveAbstractBackForth(Cudd* mgr, BDDAIG* spec, int threshold, bool do_synth=false) {
+  unsigned cnt = 0;
+  dbgMsg("Internal solve abstract, threshold = "+to_string(threshold));
+  BDD init_state = spec->initState();
+  BDD error_states = spec->errorStates();
+  BDD mayWin = ~error_states;
+  BDD cache_trans_bdd;
+  BDD cache_non_abstracted_result;
+  BDD untracked_latches= spec->latchCube();
+  bool fixpoint = false;
+  bool abstract_algo = false;
+
+  while ((! (init_state & mayWin).IsZero()) && (! fixpoint)) {
+    dbgMsg("Number of untracked latches = "+to_string(untracked_latches.SupportSize()));    
+    if (mayWin.nodeCount() < threshold) { 
+      abstract_algo = false;
+      dbgMsg("Algos.cpp: Size < Threshold ; Fixpoint step "+to_string(++cnt)+" Bdd size : "+to_string(mayWin.nodeCount()));
+      BDD mayWin1 = mayWin & abstract_safe_cpre(spec, mayWin,mgr->bddZero(),cache_trans_bdd, cache_non_abstracted_result);
+      fixpoint = (mayWin1 == mayWin);
+      mayWin = mayWin1;
+    }
+    else {
+      dbgMsg("Algos.cpp: Threshold <= Size; Fixpoint step "+to_string(++cnt)+" Bdd size : "+to_string(mayWin.nodeCount()));
+      dbgMsg("Number of untracked latches = "+to_string(untracked_latches.SupportSize()));
+
+      if(!abstract_algo)
+	{ 
+	  if(untracked_latches== spec->latchCube()){
+	    BDD implicant = mayWin.LargestCube();
+	    untracked_latches = untracked_latches.ExistAbstract(implicant.Support());
+	  }
+
+	  mayWin = mayWin.ExistAbstract(untracked_latches);
+	  abstract_algo = true;
+	}
+
+      BDD mayWin1 = mayWin & abstract_safe_cpre(spec, mayWin, untracked_latches,cache_trans_bdd, cache_non_abstracted_result);
+
+      if (mayWin1 == mayWin) 
+	{
+	  dbgMsg("Promoting");
+	  BDD mayLose = mayWin & ~cache_non_abstracted_result;
+	  BDD implicant = mayLose.LargestCube();
+	  dbgMsg("Size of the implicant = "+to_string(implicant.SupportSize()));
+	  BDD new_untracked = untracked_latches.ExistAbstract(implicant.Support());
+	  dbgMsg("Number of newly untracked latches = "+to_string(new_untracked.SupportSize()));	  
+	  if(new_untracked == untracked_latches){
+	    dbgMsg("fixpoint");
+	    fixpoint = true;}
+	  else{
+	    untracked_latches = new_untracked;
+	  }
+
+	  //mayWin = mayWin & ~ mayLose.UnivAbstract(untracked_latches);
+	}
+
+      mayWin = mayWin1;
+    }
+    
+  }
+
+  BDD bad_transitions = ~abstract_safe_cpre_aux(spec,mayWin,cache_trans_bdd);
+
+  bool includes_init = (init_state & mayWin).IsZero();
+  dbgMsg("Early exit? " + to_string(includes_init) + 
+	 ", after " + to_string(cnt) + " iterations.");
+
+  if (!includes_init && do_synth && settings.out_file != NULL) {
+    dbgMsg("Starting synthesis, acquiring lock on synth mutex");
+    if (data != NULL) pthread_mutex_lock(&data->synth_mutex);
+    finalizeSynth(mgr, spec, 
+		  synthAlgo(mgr, spec, ~bad_transitions, ~error_states));
+  }
+  return !includes_init;
+}
+
+bool solve_abstract(AIG* spec_base, int threshold,Cudd_ReorderingType reordering) {
     Cudd mgr(0, 0);
-    mgr.AutodynEnable(CUDD_REORDER_SIFT);
-    BDDAIG spec(spec_base, &mgr);
-    BDD init = spec.initState();
-    return post(spec,init);
+    mgr.AutodynEnable(reordering);
+    BDDAIG spec(*spec_base, &mgr);
+    return internalSolveAbstractBackForth(&mgr, &spec, threshold,true);
 }
 
 bool compSolve1(AIG* spec_base) {
@@ -372,8 +529,7 @@ bool compSolve1(AIG* spec_base) {
             total_cinputs.insert(ic.begin(), ic.end());
         }
     }   
-    logMsg("Are we cinput-independent? " + to_string(cinput_independent));
-    //dbgMsg("Are we cinput-independent? " + to_string(cinput_independent));
+    // dbgMsg("Are we cinput-independent? " + to_string(cinput_independent));
 
     if (!cinput_independent) { // we still have one game to solve
         // release cache memory and other stuff used in BDDAIG instances
@@ -403,7 +559,8 @@ bool compSolve1(AIG* spec_base) {
             if (data != NULL) pthread_mutex_lock(&data->synth_mutex);
             finalizeSynth(&mgr, &spec, 
                           synthAlgo(&mgr, &spec, ~bad_transitions,
-                                    ~error_states));
+                                    ~error_states),
+                          spec_base);
         }
 
     } else if (settings.out_file != NULL) {
@@ -415,17 +572,18 @@ bool compSolve1(AIG* spec_base) {
         if (data != NULL) pthread_mutex_lock(&data->synth_mutex);
         vector<pair<unsigned, BDD>> all_cinput_strats;
         vector<pair<BDD, BDD>>::iterator sg = subgame_results.begin();
-        logMsg("Doing stuff");
+        // logMsg("Doing stuff");
         for (vector<BDDAIG*>::iterator i = subgames.begin();
              i != subgames.end(); i++) {
             vector<pair<unsigned, BDD>> temp;
             temp = synthAlgo(&mgr, *i, ~sg->second, ~sg->first);
+            // logMsg("Found " + std::to_string(temp.size()) + " cinputs here");
             all_cinput_strats.insert(all_cinput_strats.end(), 
                                      temp.begin(), temp.end());
             sg++;
             delete *i;
         }
-        finalizeSynth(&mgr, &spec, all_cinput_strats);
+        finalizeSynth(&mgr, &spec, all_cinput_strats, spec_base);
     }
 
     return !includes_init;
@@ -525,7 +683,8 @@ bool compSolve2(AIG* spec_base) {
         if (data != NULL) pthread_mutex_lock(&data->synth_mutex);
         finalizeSynth(&mgr, &spec, 
                       synthAlgo(&mgr, &spec, ~subgame_results.back().first,
-                                mgr.bddOne()));
+                                mgr.bddOne()),
+                      spec_base);
 
     }
     return true;
@@ -623,7 +782,8 @@ bool compSolve3(AIG* spec_base) {
         dbgMsg("Starting synthesis, acquiring lock on synth mutex");
         if (data != NULL) pthread_mutex_lock(&data->synth_mutex);
         finalizeSynth(&mgr, &spec, 
-                      synthAlgo(&mgr, &spec, ~global_losing_trans, ~global_lose));
+                      synthAlgo(&mgr, &spec, ~global_losing_trans, ~global_lose),
+                      spec_base);
     }
 
     return !includes_init;
@@ -702,14 +862,18 @@ bool solveParallel() {
 
     // the parent waits for one child to finish
     int status;
-    pid_t kiddo = wait(&status);
+    pid_t kiddo;
+    while (!data->done)
+        kiddo = wait(&status);
     dbgMsg("Answer from process " + to_string(kiddo));
     dbgMsg("With status " + to_string(status));
     // then the parent kills all its children
     for (int i = 0; i < 4; i++)
         kill(children[i], SIGKILL);
-    if (!data->done)
+    if (!data->done) {
+        errMsg("Parallel solvers stopped unexpectedly. Synthesis/realizability test inconclusive");
         exit(55); // personal code for: "FUCK, children stopped unexpectedly"
+    }
     // recover the answer
     bool result = data->result;
 

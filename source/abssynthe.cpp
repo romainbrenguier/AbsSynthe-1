@@ -30,7 +30,6 @@
 #include "abssynthe.h"
 #include "logging.h"
 #include "aig.h"
-#include "algos.h"
 
 const char* ABSSYNTHE_VERSION = "Swiss-Abssynthe 1.0";
 const int EXIT_STATUS_REALIZABLE = 10;
@@ -126,8 +125,9 @@ void parse_arguments(int argc, char** argv) {
                 break;
             case 'c':
                 settings.comp_algo = atoi(optarg);
-                if (settings.comp_algo < 1 || settings.comp_algo > 3) {
-                    errMsg(std::string("Expected comp_algo to be in {1,2,3} "
+                if (settings.comp_algo < 1 ) {
+		  //|| settings.comp_algo > 4) {
+                    errMsg(std::string("Expected comp_algo to be in {1,2,3,4} "
                                        "instead of ") + optarg);
                     usage();
                     exit(1);
@@ -164,15 +164,16 @@ int main (int argc, char** argv) {
     } else {
         // try to open the spec now
         AIG aig(settings.spec_file);
-	dbgMsg("Trying to compute reachable states...");
-	//result = reachable(aig);
-	dbgMsg("Done...");
         if (settings.comp_algo == 1) {
                 result = compSolve1(&aig);
         } else if (settings.comp_algo == 2){
                 result = compSolve2(&aig);
         } else if (settings.comp_algo == 3){
                 result = compSolve3(&aig);
+        } else if (settings.comp_algo == 4){
+	  result = solve_abstract(&aig);
+	} else if (settings.comp_algo > 4){
+	  result = solve_abstract(&aig,settings.comp_algo);
         } else { // traditional fixpoint computation
                 result = solve(&aig);
         }

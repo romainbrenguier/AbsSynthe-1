@@ -100,7 +100,7 @@ AIG::AIG(const char* aiger_file_name, bool intro_error_latch) {
         new std::unordered_map<unsigned,
                                std::pair<std::vector<unsigned>,
                                          std::vector<unsigned>>>();
-    // start loading
+    // start lodaing
     this->spec = aiger_init();
     const char* err = aiger_open_and_read_from_file (spec, aiger_file_name);
     if (err) {
@@ -136,17 +136,17 @@ AIG::AIG(const char* aiger_file_name, bool intro_error_latch) {
 #ifndef NDEBUG
     // print some debug information
     std::string litstring;
-    for (std::vector<aiger_symbol*>::const_iterator i = this->latches.begin();
+    for (std::vector<aiger_symbol*>::iterator i = this->latches.begin();
          i != this->latches.end(); i++)
         litstring += std::to_string((*i)->lit) + ", ";
     dbgMsg(std::to_string(this->latches.size()) + " Latches: " + litstring);
     litstring.clear();
-    for (std::vector<aiger_symbol*>::const_iterator i = this->c_inputs.begin();
+    for (std::vector<aiger_symbol*>::iterator i = this->c_inputs.begin();
          i != this->c_inputs.end(); i++)
         litstring += std::to_string((*i)->lit) + ", ";
     dbgMsg(std::to_string(this->c_inputs.size()) + " C.Inputs: " + litstring);
     litstring.clear();
-    for (std::vector<aiger_symbol*>::const_iterator i = this->u_inputs.begin();
+    for (std::vector<aiger_symbol*>::iterator i = this->u_inputs.begin();
          i != this->u_inputs.end(); i++)
         litstring += std::to_string((*i)->lit) + ", ";
     dbgMsg(std::to_string(this->u_inputs.size()) + " U.Inputs: " + litstring);
@@ -308,6 +308,7 @@ BDDAIG::BDDAIG(const AIG &base, Cudd* local_mgr) : AIG(base) {
     this->lit2bdd_map = new std::unordered_map<unsigned, BDD>();
     this->bdd2deps_map = new std::unordered_map<unsigned long, std::set<unsigned>>();
     this->primed_latch_cube = NULL;
+    this->latch_cube = NULL;
     this->cinput_cube = NULL;
     this->uinput_cube = NULL;
     this->next_fun_compose_vec = NULL;
@@ -321,6 +322,7 @@ BDDAIG::BDDAIG(const BDDAIG &base, BDD error) : AIG(base) {
     this->lit2bdd_map = base.lit2bdd_map;
     this->bdd2deps_map = base.bdd2deps_map;
     this->primed_latch_cube = NULL;
+    this->latch_cube = NULL;
     this->cinput_cube = NULL;
     this->uinput_cube = NULL;
     this->next_fun_compose_vec = NULL;
@@ -432,18 +434,6 @@ BDD BDDAIG::primeLatchesInBdd(BDD original) {
     return result;
 }
 
-
-BDD BDDAIG::unprimeLatchesInBdd(const BDD & original) {
-    std::vector<BDD> latch_bdds, primed_latch_bdds;
-    std::vector<aiger_symbol*>::iterator i;
-    for (i = this->latches.begin(); i != this->latches.end(); i++) {
-        latch_bdds.push_back(this->mgr->bddVar((*i)->lit));
-        primed_latch_bdds.push_back(this->mgr->bddVar(AIG::primeVar((*i)->lit)));
-    }
-    BDD result = original.SwapVariables(primed_latch_bdds,latch_bdds);
-    return result;
-}
-
 BDD BDDAIG::primedLatchCube() {
     if (this->primed_latch_cube == NULL) {
         BDD result = this->mgr->bddOne();
@@ -453,6 +443,17 @@ BDD BDDAIG::primedLatchCube() {
         this->primed_latch_cube = new BDD(result);
     }
     return BDD(*this->primed_latch_cube);
+}
+
+BDD BDDAIG::latchCube() {
+    if (this->latch_cube == NULL) {
+        BDD result = this->mgr->bddOne();
+        for (std::vector<aiger_symbol*>::iterator i = this->latches.begin();
+             i != this->latches.end(); i++)
+            result &= this->mgr->bddVar((*i)->lit);
+        this->latch_cube = new BDD(result);
+    }
+    return BDD(*this->latch_cube);
 }
 
 BDD BDDAIG::cinputCube() {
@@ -484,9 +485,6 @@ BDD BDDAIG::toCube(std::set<unsigned> &vars) {
     return result;
 }
 
-BDD BDDAIG::ofLit(unsigned var) {
-  return this->mgr->bddVar(var);
-}
 
 BDD BDDAIG::lit2bdd(unsigned lit) {
     BDD result;
@@ -554,9 +552,7 @@ std::vector<unsigned> AIG::getLatchLits(){
     return v;
 }
 
-Cudd * BDDAIG::manager() { return mgr; }
-
-std::vector<BDD> BDDAIG::nextFunComposeVec(BDD* care_region) {
+std::vector<BDD> BDDAIG::nextFunComposeVec(BDD* care_region=NULL) {
     if (this->next_fun_compose_vec == NULL) {
         //dbgMsg("building and caching next_fun_compose_vec");
         this->next_fun_compose_vec = new std::vector<BDD>();

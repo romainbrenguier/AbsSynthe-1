@@ -928,7 +928,7 @@ aiger_string_put (char ch, aiger_buffer * buffer)
     return EOF;
   *buffer->cursor++ = ch;
   res = ch;
-  return ch;
+  return res;
 }
 
 static int

@@ -1,10 +1,9 @@
-#CXX=clang++
 CXX=g++
+#CXXFLAGS=-Wall -std=c++11 -pthread -O3 -D NDEBUG
 CXXFLAGS=-Wall -std=c++11 -pthread -O3
-HEADERS=abssynthe.h logging.h aig.h aiger.h algos.h
-SOURCES=logging.cpp aig.cpp aiger.c algos.cpp
-#CUDD_PATH=cudd-2.5.1
-CUDD_PATH=../../ocaml-cudd/cudd-2.5.0
+HEADERS=abssynthe.h logging.h aig.h aiger.h
+SOURCES=abssynthe.cpp logging.cpp aig.cpp aiger.c algos.cpp
+CUDD_PATH=cudd-2.5.1
 CUDD_HDRS=$(CUDD_PATH)/include
 CUDD_LIBS=$(CUDD_PATH)/obj/libobj.a \
 	  $(CUDD_PATH)/cudd/libcudd.a \
@@ -14,20 +13,6 @@ CUDD_LIBS=$(CUDD_PATH)/obj/libobj.a \
 	  $(CUDD_PATH)/epd/libepd.a
 
 abssynthe: $(HEADERS) $(SOURCES) $(CUDD_HDRS) $(CUDD_LIBS)
-	$(CXX) $(CXXFLAGS) $(SOURCES) abssynthe.cpp $(CUDD_LIBS) -o abssynthe -I $(CUDD_HDRS)
-
-logging.o: $(HEADERS) logging.cpp $(CUDD_HDRS) $(CUDD_LIBS)
-	$(CXX) $(CXXFLAGS) logging.cpp -c -I $(CUDD_HDRS)
-
-aig.o:  $(HEADERS) aig.cpp $(CUDD_HDRS) $(CUDD_LIBS)
-	$(CXX) $(CXXFLAGS) aig.cpp -c -I $(CUDD_HDRS)
-
-aiger.o: $(HEADERS) aiger.c $(CUDD_HDRS) $(CUDD_LIBS)
-	$(CXX) $(CXXFLAGS) aiger.c -c 
- 
-atl:  $(HEADERS) atl.cpp $(CUDD_HDRS) $(CUDD_LIBS) aiger.o aig.o logging.o
-	$(CXX) $(CXXFLAGS) logging.o aig.o aiger.o atl.cpp $(CUDD_LIBS) -o atl -I $(CUDD_HDRS)
-
+	$(CXX) $(CXXFLAGS) $(SOURCES) $(CUDD_LIBS) -o abssynthe -I $(CUDD_HDRS)
 clean:
 	rm -f abssynthe
-
